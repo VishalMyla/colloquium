@@ -1,0 +1,115 @@
+theory OriginalScheme
+begin
+
+/* Cryptographic Primitives */
+
+builtins: hashing, asymmetric-encryption
+
+
+rule Register_pk:
+    [ Fr(~ltk) ]
+  -->
+    [ !Ltk($A, ~ltk), !Pk($A, pk(~ltk)) ]
+
+rule Get_pk:
+    [ !Pk(A, pubkey) ]
+  -->
+    [ Out(pubkey) ]
+
+rule Reveal_ltk:
+    [ !Ltk(A, ltk) ]
+  --[ LtkReveal(A) ]->
+    [ Out(ltk) ]
+
+/* Protocol Modeling */
+
+/* Phase 1: Registration and Initial Key Exchange Phase */
+rule Client_Registration:
+    [ Fr(~k)        // Generate fresh key
+    , !Pk($S, pkS)  // Lookup server's public key
+    ]
+  -->
+    [ Client_Registration($S, ~k)
+    , Out(aenc(~k, pkS)) // Send encrypted key to server
+    ]
+
+rule Server_Registration:
+    [ !Ltk($S, ~ltkS)          // Server's long-term private key
+    , In(aenc(k, pkS))         // Receive encrypted key from client
+    ]
+  --[ SessionKeySetup($S, k) ]-> // Setup session key
+    [ Out(h(k)) ] // Send hash of the key to the client
+  /* Additional rules for client and server to complete the process */
+
+/* Phase 2: Authentication Phase */
+rule Client_Auth:
+    [ Client_Registration(S, k)
+    , In(h(k))                     // Receive hash from server
+    ]
+  --[ Authenticated(S, k) ]->  // Authentication of the server
+    [ Out(S) ]         // Confirmation to the server
+
+// rule Server_Auth:
+//     [ !Ltk(S, ltkS)            // Server’s long-term private key
+//     , In(S)          // Confirm the session
+//     ]
+//   --[ Authenticated(S, k) ]->  // Confirm the client authentication
+//     [ Out(S) ]    // Send completion to the client
+//   /* Additional rules for handling the authentication */
+
+/* Security Properties */
+
+/* Secrecy of Session Key */
+lemma Client_session_key_secrecy:
+  " /* It cannot be that a */
+    not(
+      Ex S k #i #j.
+        /* client has set up a session key 'k' with a server 'S' */
+        SessionKeySetup(S, k) @ #i
+        /* and the adversary knows 'k' */
+      & K(k) @ #j
+        /* without having performed a long-term key reveal on 'S'. */
+      & not(Ex #r. LtkReveal(S) @ r)
+    )
+  "
+
+/* Authentication Property */
+lemma Client_auth:
+  " /* For all session keys 'k' setup by clients with a server 'S' */
+    ( All S k #i.  SessionKeySetup(S, k) @ #i
+       ==>
+         /* there is a server that completed the authentication process */
+       ( (Ex #a. Authenticated(S, k) @ a)
+         /* or the adversary performed a long-term key reveal on 'S'
+            before the key was setup. */
+       | (Ex #r. LtkReveal(S) @ r & r < i)
+       )
+    )
+  "
+
+/* Injective Authentication Property */
+lemma Client_auth_injective:
+  " /* For all session keys 'k' setup by clients with a server 'S' */
+    ( All S k #i.  SessionKeySetup(S, k) @ #i
+       ==>
+         /* there is a server that completed the authentication process */
+       ( (Ex #a. Authenticated(S, k) @ a
+           /* and there is no other client that had the same request */
+           & (All #j. SessionKeySetup(S, k) @ #j ==> #i = #j)
+       )
+         /* or the adversary performed a long-term key reveal on 'S'
+            before the key was setup. */
+       | (Ex #r. LtkReveal(S) @ r & r < i)
+       )
+    )
+  "
+
+/* Executability Lemma */
+lemma Client_session_key_honest_setup:
+  exists-trace
+  " Ex S k #i.
+        SessionKeySetup(S, k) @ #i
+      & not(Ex #r. LtkReveal(S) @ r)
+  "
+
+end
